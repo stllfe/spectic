@@ -29,40 +29,40 @@ from spectic.types import ClosedUnitInterval, PositiveInt, NonEmptyStr
 
 @spec
 class User:
-    name: NonEmptyStr
-    age: PositiveInt
+  name: NonEmptyStr
+  age: PositiveInt
 
 @spec
 class Experiment:
-    title: NonEmptyStr
-    owner: User
-    trust: ClosedUnitInterval
-    attempts: PositiveInt
-    threshold: float = field(ge=0, le=1)
+  title: NonEmptyStr
+  owner: User
+  trust: ClosedUnitInterval
+  attempts: PositiveInt
+  threshold: float = field(ge=0, le=1)
 
-    # spec-level rule: constraint involving multiple fields
-    rule(this.trust > this.threshold, "experiment trust must exceed threshold")
-    rule(this.owner.age >= this.attempts, "owner's age must be at least equal to attempts")
-    rule(this.title.lower() not in this.owner.name.lower(), "title must not include owner's name")
+  # spec-level rule: constraint involving multiple fields
+  rule(this.trust > this.threshold, "experiment trust must exceed threshold")
+  rule(this.owner.age >= this.attempts, "owner's age must be at least equal toattempts")
+  rule(this.title.lower() not in this.owner.name.lower(), "title must not include owner's name")
 
 # strict construction: must pass typed values!
 exp = Experiment(
-    title="SuperTest",
-    owner=User(name="alice", age=5),
-    trust=0.8,
-    attempts=3,
-    threshold=0.7
+  title="SuperTest",
+  owner=User(name="alice", age=5),
+  trust=0.8,
+  attempts=3,
+  threshold=0.7
 )
 # This will fail: Experiment(title="test", owner=User(...), trust=0.5, attempts=10, threshold=0.6)
 
 from spectic import asdict, asjson, fromdict, fromjson
 
 data = {
-    "title": "big trial",
-    "owner": {"name": "bob", "age": 15},
-    "trust": 0.9,
-    "attempts": 12,
-    "threshold": 0.2,
+  "title": "big trial",
+  "owner": {"name": "bob", "age": 15},
+  "trust": 0.9,
+  "attempts": 12,
+  "threshold": 0.2,
 }
 exp2 = fromdict(data, Experiment)  # works: dicts auto-converted only on fromdict!
 
@@ -70,7 +70,7 @@ from spectic import check
 
 @check
 def assign(user: User, exp: Experiment):
-    return f"{user.name} is running {exp.title}"
+  return f"{user.name} is running {exp.title}"
 
 # assign(User(...), Experiment(...)) works
 # assign(dict, dict) --> fails without coercion (unless you call fromdict first)

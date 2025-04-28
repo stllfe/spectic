@@ -2,6 +2,7 @@ from typing import Annotated
 
 import msgspec
 
+
 # -----------------------------------------------------------------------------
 # Numeric Types
 

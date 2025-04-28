@@ -1,2 +1,2 @@
 class SpecticException(Exception):
-    pass
+  pass
