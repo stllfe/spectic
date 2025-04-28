@@ -1,6 +1,7 @@
 import inspect
 
-from typing import Annotated, TypeVar, get_type_hints
+from types import EllipsisType
+from typing import Annotated, Callable, TypeVar, get_type_hints
 
 import msgspec
 
@@ -56,7 +57,7 @@ class SymbolicExpr:
 
 
 class ThisRef:
-  def __init__(self, name=None):
+  def __init__(self, name: str | None = "$"):
     self._name = name
 
   def __getattr__(self, attr):
@@ -110,12 +111,16 @@ this = ThisRef()
 
 
 class Rule:
-  def __init__(self, expr, message=None):
+  def __init__(self, expr, bind=None, message=None):
     self.expr = expr
+    self.bind = bind
     self.message = message
 
   def __call__(self, inst):
-    if _eval_expr(self.expr, inst):
+    inst = inst if not self.bind else getattr(inst, self.bind)
+    ok = _eval_expr(self.expr, inst)
+
+    if ok is None or ok:
       return True
 
     raise ValueError(self.message or f"Rule failed: {self.expr}")
@@ -128,6 +133,8 @@ def _eval_expr(expr, instance):
     for p in parts:
       val = getattr(val, p)
     return val
+  elif isinstance(expr, Callable):
+    return expr(instance)
   elif isinstance(expr, SymbolicExpr):
     op = expr.op
     left = _eval_expr(expr.left, instance)
@@ -154,11 +161,8 @@ def _eval_expr(expr, instance):
       return left / right
     if op == "%":
       return left % right
-    if op == "in":
-      return left in right
     raise RuntimeError(op)
-  else:
-    return expr
+  return expr
 
 
 # -----------------------------------------------------------------------------
@@ -166,24 +170,35 @@ def _eval_expr(expr, instance):
 
 
 class Field:
-  def __init__(self, *, default=..., constraints=None, **kwargs):
+  def __init__(self, default=..., constraints=None, rule=None, **kwargs) -> None:
     # constraints: dict (gt, ge, lt, le, min_length, max_length, pattern, etc)
     self.default = default
     self.constraints = constraints or {}
     self.field_kwargs = kwargs
+    self.rule = rule
+
+
+T = TypeVar("T")
+
+Unknown = EllipsisType
 
 
 def field(
+  default: T | Unknown = ...,
   *,
-  default=...,
-  gt=None,
-  ge=None,
-  lt=None,
-  le=None,
-  min_length=None,
-  max_length=None,
-  pattern=None,
-  description=None,
+  default_factory: Callable | None = None,
+  rule: Callable[[T], None] | None = None,
+  name: str | None = None,
+  gt: int | float | None = None,
+  ge: int | float | None = None,
+  lt: int | float | None = None,
+  le: int | float | None = None,
+  multiple_of: int | float | None = None,
+  pattern: str | None = None,
+  min_length: int | None = None,
+  max_length: int | None = None,
+  tz: bool | None = None,
+  description: str | None = None,
 ) -> Field:
   # Save constraints and defer conversion to Annotated
   constraints = {}
@@ -203,7 +218,12 @@ def field(
     constraints["pattern"] = pattern
   if description is not None:
     constraints["description"] = description
-  return Field(default=default, constraints=constraints)
+  if multiple_of is not None:
+    constraints["multiple_of"] = multiple_of
+  if tz is not None:
+    constraints["tz"] = tz
+
+  return Field(default, constraints, rule, name=name, default_factory=default_factory)
 
 
 # -----------------------------------------------------------------------------
@@ -213,12 +233,13 @@ _RULE_MARKER = "_marked_rule"
 
 
 def rule(expr=None, message: str | None = None):
-  if callable(expr):
+  if inspect.ismethod(expr):
     setattr(expr, _RULE_MARKER, True)
     return expr
   frame = inspect.currentframe().f_back
   local_vars = frame.f_locals
-  local_vars.setdefault("__spec_rules__", []).append(Rule(expr, message))
+  local_vars.setdefault("__spec_rules__", []).append(Rule(expr, message=message))
+  print(local_vars)
 
 
 # -----------------------------------------------------------------------------
@@ -246,12 +267,15 @@ def spec(cls: type[T]) -> type[T]:
     default = getattr(cls, key, Ellipsis)
     info = None
     if isinstance(default, Field):
+      rule = default.rule
       info = default
       default = info.default
       if info.constraints:
         T = Annotated[T, msgspec.Meta(**info.constraints)]
+      if rule:
+        spec_rules.append(Rule(rule, bind=key))
     if default is not Ellipsis:
-      msgspec_fields[key] = msgspec.field(default=default)
+      msgspec_fields[key] = msgspec.field(default=default, **info.field_kwargs)
     else:
       msgspec_fields[key] = msgspec.field()
     attrs[key] = (T, default)
