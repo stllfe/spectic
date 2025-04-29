@@ -24,7 +24,7 @@ for instant classes with validation, parsing, and serialization.**
 ## Example
 
 ```python
-from spectic import spec, field, rule, asdict, asjson, check, this
+from spectic import spec, field, rule, asdict, asjson, check
 from spectic.types import ClosedUnitInterval, PositiveInt, NonEmptyStr
 
 @spec
@@ -41,9 +41,19 @@ class Experiment:
   threshold: float = field(ge=0, le=1)
 
   # spec-level rule: constraint involving multiple fields
-  rule(lamba s: s.trust > s.threshold, "experiment trust must exceed threshold")
-  rule(lamba s: s.owner.age >= s.attempts, "owner's age must be at least equal toattempts")
-  rule(lamba s: s.title.lower() not in s.owner.name.lower(), "title must not include owner's name")
+  rule(lambda s: s.trust > s.threshold, "experiment trust must exceed threshold")
+  rule(lambda s: s.owner.age >= s.attempts, "owner's age must be at least equal to attempts")
+  rule(lambda s: s.title.lower() not in s.owner.name.lower(), "title must not include owner's name")
+
+  # or as a method (will be accessible in this case)
+  @rule
+  def validate(self) -> None:
+    if self.trust <= self.threshold:
+      raise ValueError("experiment trust must exceed threshold")
+    if self.owner.age < self.attempts:
+      raise ValueError("owner's age must be at least equal to attempts")
+    if self.title.lower() in self.owner.name.lower():
+      raise ValueError("title must not include owner's name")
 
 # strict construction: must pass typed values!
 exp = Experiment(
@@ -69,11 +79,14 @@ exp2 = fromdict(data, Experiment)  # works: dicts auto-converted only on fromdic
 from spectic import check
 
 @check
-def assign(user: User, exp: Experiment):
-  return f"{user.name} is running {exp.title}"
+def calculate_area(height: PositiveInt, width: PositiveInt) -> PositiveInt:
+  return height * width
 
-# assign(User(...), Experiment(...)) works
-# assign(dict, dict) --> fails without coercion (unless you call fromdict first)
+# This will work: calculate_area(3, 4)
+# This will fail: calculate_area(3, -5)
+# This will fail: calculate_area(3, "4")
+#   but with @check(coerce=True) it will work!
+
 ```
 
 ## Install
