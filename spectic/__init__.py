@@ -1,5 +1,6 @@
 from . import types  # noqa
 from ._core import (
+    Rule,
     asdict,
     asjson,
     asyaml,
@@ -13,6 +14,7 @@ from ._core import (
 )
 
 __all__ = (
+    "Rule",
     "asdict",
     "asjson", 
     "asyaml",

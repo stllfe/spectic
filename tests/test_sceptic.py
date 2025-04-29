@@ -7,6 +7,7 @@ try:
 except ImportError:
     yaml = None
 
+from spectic import Rule
 from spectic import asdict
 from spectic import asjson
 from spectic import asyaml
@@ -42,11 +43,17 @@ class Experiment:
   attempts: PositiveInt
   threshold: float = field(ge=0, le=1)
 
-  rule(lambda self: self.trust > self.threshold, "experiment trust must exceed threshold")
-  rule(
-    lambda self: self.owner.age >= self.attempts,
-    "owner's age must be at least equal to attempts",
-  )
+  # Using method approach
+  @rule
+  def validate_trust(self):
+    if self.trust <= self.threshold:
+      raise ValueError("experiment trust must exceed threshold")
+
+  # Using method approach for age validation too
+  @rule
+  def validate_age(self):
+    if self.owner.age < self.attempts:
+      raise ValueError("owner's age must be at least equal to attempts")
 
 
 def test_spec_rule_with_lambdas_valid():
@@ -63,7 +70,7 @@ def test_spec_rule_with_lambdas_valid():
 
 def test_spec_rule_with_lambdas_invalid():
   # Test that creating an experiment with trust < threshold fails
-  try:
+  with pytest.raises(ValueError, match="trust must exceed threshold"):
     Experiment(
       title="Alpha",
       owner=User(name="bob", age=20),
@@ -71,12 +78,9 @@ def test_spec_rule_with_lambdas_invalid():
       attempts=5,
       threshold=0.4,
     )
-    pytest.fail("Should have raised ValueError for trust < threshold")
-  except ValueError as e:
-    assert "trust must exceed threshold" in str(e)
     
   # Test that creating an experiment with owner.age < attempts fails
-  try:
+  with pytest.raises(ValueError, match="owner's age must be at least equal to attempts"):
     Experiment(
       title="Alpha",
       owner=User(name="bob", age=2),
@@ -84,9 +88,6 @@ def test_spec_rule_with_lambdas_invalid():
       attempts=5,
       threshold=0.3,
     )
-    pytest.fail("Should have raised ValueError for owner age < attempts")
-  except ValueError as e:
-    assert "owner's age must be at least equal to attempts" in str(e)
 
 
 def test_field_level_rule():
@@ -102,6 +103,28 @@ def test_field_level_rule():
   # Invalid price - too high
   with pytest.raises(ValueError, match="Price must be less than 1000"):
     Product(name="Expensive Widget", price=1500)
+
+
+def test_lambda_rules():
+  @spec
+  class Order:
+    items: int = field(gt=0)
+    total: float = field(gt=0)
+    discount: float = field(ge=0, le=1)
+    
+    # Lambda rule in class body
+    __spec_rules__ = []
+    __spec_rules__.append(Rule(lambda self: self.total > 0, message="Order total must be positive"))
+    __spec_rules__.append(Rule(lambda self: self.items * self.discount < self.total, 
+                             message="Discount cannot exceed total value"))
+    
+  # Valid order
+  order = Order(items=5, total=100.0, discount=0.1)
+  assert order.total == 100.0
+  
+  # Invalid order - discount too high
+  with pytest.raises(ValueError, match="Discount cannot exceed total value"):
+    Order(items=10, total=5.0, discount=0.9)
 
 
 def test_field_coercion():
