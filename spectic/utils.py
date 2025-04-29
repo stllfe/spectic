@@ -40,20 +40,18 @@ from typing import (
   Union,
   ValuesView,
   cast,
+  Annotated,
+  NewType,
+  get_args,
+  get_origin,
+  get_type_hints,
+  TypeAlias,
 )
 
-from typing_extensions import Annotated
-from typing_extensions import NewType
 from typing_extensions import NotRequired
 from typing_extensions import Required
 from typing_extensions import _TypedDictMeta  # type: ignore[attr-defined]
-from typing_extensions import get_args
-from typing_extensions import get_origin
-from typing_extensions import get_type_hints
 
-
-if TYPE_CHECKING:
-  from typing_extensions import TypeAlias
 
 __all__ = (
   "NoneType",

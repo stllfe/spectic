@@ -41,9 +41,9 @@ class Experiment:
   threshold: float = field(ge=0, le=1)
 
   # spec-level rule: constraint involving multiple fields
-  rule(this.trust > this.threshold, "experiment trust must exceed threshold")
-  rule(this.owner.age >= this.attempts, "owner's age must be at least equal toattempts")
-  rule(this.title.lower() not in this.owner.name.lower(), "title must not include owner's name")
+  rule(lamba s: s.trust > s.threshold, "experiment trust must exceed threshold")
+  rule(lamba s: s.owner.age >= s.attempts, "owner's age must be at least equal toattempts")
+  rule(lamba s: s.title.lower() not in s.owner.name.lower(), "title must not include owner's name")
 
 # strict construction: must pass typed values!
 exp = Experiment(
@@ -94,9 +94,6 @@ pip install spectic
 
 - 🏎️ **validation is thorough, but stays out of your way:**
   Field-level constraints and spec-level (model) rules are always enforced at construction. Spec-level rules are designed for expressing invariants and dependencies *across fields*—not just single-attribute assertions, but real business/logic
-
-- ➗ **symbolic, not stringy:**
-  Rules use a pythonic, symbolic mini DSL `this` for writing interconnected constraints. `this` makes relationships in your data model readable, typo-resistant, and easily checkable by editors and static tools
 
 - 🧩 **bare and composable:**
   Spectic classes are plain, attrs-like models—no clutter, no hidden magic methods. All helpers for parsing, serializing, or checking are regular functions, not class mixins or hidden metaclasses
