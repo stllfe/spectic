@@ -1,7 +1,20 @@
 import inspect
 import functools
 from types import EllipsisType
-from typing import Annotated, Any, Callable, TypeVar, get_type_hints, get_origin, get_args, cast
+from typing import Annotated, Any, Callable, ClassVar, TypeVar, get_type_hints, get_origin, get_args, cast
+
+# Import dataclass_transform for IDE support
+try:
+    from typing import dataclass_transform  # Python 3.11+
+except ImportError:
+    try:
+        from typing_extensions import dataclass_transform  # Python 3.8-3.10
+    except ImportError:
+        # Fallback - create a no-op decorator for older Python versions without typing_extensions
+        def dataclass_transform(*args, **kwargs):
+            def decorator(cls):
+                return cls
+            return decorator
 
 import msgspec
 
@@ -23,12 +36,59 @@ def get_base_type(annotation: Any) -> Any:
     return annotation
 
 
+# Define this variable at the module level
+T = TypeVar("T")
+
+def annotate_spec(cls: type[T]) -> type[T]:
+    """Annotate a spec class with IDE-friendly metadata.
+    
+    This function can be used to explicitly mark a class for IDE
+    autocomplete support when normal typing isn't working well.
+    
+    Example:
+        User = annotate_spec(User)  # Now IDE will show proper fields
+    """
+    # Add type hints for the most demanding type checkers
+    
+    # PyCharm support
+    try:
+        # PyCharm uses __pydantic_model__ to recognize data models
+        setattr(cls, "__pydantic_model__", True)
+        
+        # PyCharm/VSCode attribute inspection
+        if not hasattr(cls, "__dataclass_fields__"):
+            annotations = getattr(cls, "__annotations__", {})
+            dataclass_fields = {}
+            for field_name, field_type in annotations.items():
+                field_obj = type('Field', (), {
+                    'name': field_name,
+                    'type': field_type,
+                    'default': getattr(cls, field_name, None),
+                    'default_factory': None,
+                    'init': True,
+                    'repr': True, 
+                    'compare': True,
+                    'hash': True,
+                })
+                dataclass_fields[field_name] = field_obj
+            setattr(cls, "__dataclass_fields__", dataclass_fields)
+            
+        # Make it look like a standard class with variables
+        for field_name, field_type in getattr(cls, "__annotations__", {}).items():
+            if not hasattr(cls, field_name) or isinstance(getattr(cls, field_name), Field):
+                setattr(cls, f"__{field_name}_type__", field_type)
+    except Exception:
+        pass  # Ignore any errors - this is just for IDE support
+        
+    return cls
+
+
 # type vars for better hints
 T = TypeVar("T")
 
 
 # Utility functions for data conversion
-def fromdict(cls: type[T], data: dict[str, Any]) -> T:
+def fromdict(data: dict[str, Any], cls: type[T]) -> T:
     """Convert a dictionary to an instance of the specified class."""
     return msgspec.convert(data, cls, dec_hook=default_deserializer)
 
@@ -51,7 +111,7 @@ def asjson(obj: Any, *, indent: int | None = None) -> bytes:
     return json_bytes
 
 
-def fromjson(cls: type[T], json_str: str | bytes) -> T:
+def fromjson(json_str: str | bytes, cls: type[T]) -> T:
     """Convert a JSON string to an instance of the specified class."""
     return msgspec.json.decode(json_str, type=cls, dec_hook=default_deserializer)
 
@@ -65,12 +125,12 @@ def asyaml(obj: Any, *, indent: int = 2) -> str:
         raise ImportError("pyyaml is required for YAML support")
 
 
-def fromyaml(cls: type[T], yaml_str: str) -> T:
+def fromyaml(yaml_str: str, cls: type[T]) -> T:
     """Convert a YAML string to an instance of the specified class."""
     try:
         import yaml
         data = yaml.safe_load(yaml_str)
-        return fromdict(cls, data)
+        return fromdict(data, cls)
     except ImportError:
         raise ImportError("pyyaml is required for YAML support")
 
@@ -80,6 +140,10 @@ def fromyaml(cls: type[T], yaml_str: str) -> T:
 
 
 class Field:
+  """Field definition that works with the @spec decorator.
+  
+  This class helps define fields with validations and constraints.
+  """
   def __init__(
       self,
       default: Any = ...,
@@ -94,6 +158,60 @@ class Field:
     self.field_kwargs = kwargs
     self.rule = rule
     self.coerce = coerce
+    
+    # Help IDEs with type inspection
+    self.type = None  # Will be set during class creation
+    self.name = None  # Will be set during class creation
+    self.metadata = kwargs  # Store metadata for type checkers
+    
+  def __get__(self, obj, objtype=None):
+    """Support descriptor protocol for better IDE integration.
+    
+    This makes Field instances behave like the values they represent
+    when accessed at runtime.
+    """
+    if obj is None:
+      return self
+    return getattr(obj, self.name)
+    
+  def __set_name__(self, owner, name):
+    """Support descriptor protocol for better IDE integration."""
+    self.name = name
+
+  # Make Field play nice with type checkers by pretending to be the target type
+  def __iter__(self): 
+    """Support iteration for sequence types."""
+    yield from []  # Empty iterator - just to satisfy type checker
+    
+  def __getitem__(self, key):
+    """Support indexing for dict/list types."""
+    raise IndexError("Field is not indexable at class definition time")
+  
+  # Help type checkers with common operations
+  def __add__(self, other): return NotImplemented
+  def __sub__(self, other): return NotImplemented
+  def __mul__(self, other): return NotImplemented
+  def __truediv__(self, other): return NotImplemented
+  
+  # Special methods to make Field compatible with type checkers
+  def __call__(self, *args, **kwargs):
+    """Support calling Field() instances as if they were the target type."""
+    return None
+    
+  # Make Field pretend to be any basic type
+  def __str__(self): return ""
+  def __int__(self): return 0
+  def __float__(self): return 0.0
+  def __bool__(self): return False
+  
+  # For sequence types
+  def __len__(self): return 0
+  
+  def __repr__(self):
+    """Better representation for debugging."""
+    type_str = f": {self.type.__name__}" if hasattr(self, "type") and self.type else ""
+    default_str = f" = {self.default}" if self.default is not Ellipsis else ""
+    return f"{self.name or '?'}{type_str}{default_str}"
 
 
 Unknown = EllipsisType
@@ -166,15 +284,54 @@ class Rule:
     self.expr = expr
     self.bind = bind
     self.message = message
+    
+    # Capture location information for better error messages
+    try:
+      if inspect.isfunction(expr) or isinstance(expr, type(lambda: None)):
+        frame = inspect.currentframe().f_back.f_back  # Two frames back to get caller of rule()
+        self.filename = frame.f_code.co_filename
+        self.lineno = frame.f_lineno
+        # Try to get source if it's a lambda
+        if isinstance(expr, type(lambda: None)):
+          try:
+            source_lines, start_line = inspect.getsourcelines(frame)
+            # Find the line with "lambda" in it near our line number
+            for i, line in enumerate(source_lines):
+              if "lambda" in line and i + start_line <= frame.f_lineno:
+                self.source = line.strip()
+                break
+          except Exception:
+            self.source = str(expr)
+        else:
+          self.source = str(expr)
+    except Exception:
+      self.filename = None
+      self.lineno = None
+      self.source = str(expr)
 
   def __call__(self, inst):
     inst = inst if not self.bind else getattr(inst, self.bind)
-    ok = self.expr(inst)
-
-    if ok is None or ok:
-      return True
-
-    raise ValueError(self.message or f"Rule failed: {self.expr}")
+    
+    try:
+      ok = self.expr(inst)
+      
+      if ok is None or ok:
+        return True
+        
+      error_message = self.message or f"Rule failed: {self.source if hasattr(self, 'source') else self.expr}"
+      if hasattr(self, 'filename') and hasattr(self, 'lineno') and self.filename and self.lineno:
+        error_message += f" (defined at {self.filename}:{self.lineno})"
+        
+      raise ValueError(error_message)
+      
+    except Exception as e:
+      if not isinstance(e, ValueError) and self.message:
+        # If an exception occurred in the rule itself, wrap it with our message
+        error_message = f"{self.message} (rule execution failed: {e})"
+        if hasattr(self, 'filename') and hasattr(self, 'lineno') and self.filename and self.lineno:
+          error_message += f" (defined at {self.filename}:{self.lineno})"
+        raise ValueError(error_message) from e
+      raise
 
 
 # -----------------------------------------------------------------------------
@@ -201,27 +358,57 @@ def rule(expr=None, message: str | None = None):
 
       rule(lambda self: self.x > 0, "x must be positive")
   """
-  # if rule is used as a decorator with no arguments
-  if callable(expr) and not isinstance(expr, type):
-    # Set marker for method decorators
-    # This applies to both bound and unbound methods
-    setattr(expr, _RULE_MARKER, True)
-    return expr
+  # For lambdas and all callables in class body
+  if expr is not None and callable(expr):
+    # Create a Rule object for the expression
+    rule_obj = Rule(expr, message=message)
+    
+    # Try to detect if we're in a class body
+    try:
+      frame = inspect.currentframe().f_back
+      if frame and frame.f_locals is not None:
+        # Look for signs we're in a class definition
+        if "__module__" in frame.f_locals:
+          # We're in a class definition, add to __spec_rules__
+          frame.f_locals.setdefault("__spec_rules__", []).append(rule_obj)
+    except Exception:
+      # Fallback in case of frame access issues
+      pass
+    
+    # If it's a method, mark it
+    if inspect.ismethod(expr) or inspect.isfunction(expr):
+      setattr(expr, _RULE_MARKER, True)
+      
+    return rule_obj if not (inspect.ismethod(expr) or inspect.isfunction(expr)) else expr
 
   # if rule is called directly (rule(...))
   # or if it's used as a decorator with arguments
   if expr is None:
     # used as @rule() decorator with optional message
     def decorator(func):
+      # Create and attach rule
+      rule_obj = Rule(func, message=message)
+      
+      # Mark the function
       setattr(func, _RULE_MARKER, True)
+      
+      # Try to add to class body if in class definition
+      try:
+        frame = inspect.currentframe().f_back
+        if frame and frame.f_locals is not None:
+          if "__module__" in frame.f_locals:
+            frame.f_locals.setdefault("__spec_rules__", []).append(rule_obj)
+      except Exception:
+        pass
+        
       return func
     return decorator
 
-  # direct rule definition in class body with lambda
+  # Direct rule in class body for non-callable expressions (rare)
   try:
-    print("here")
     frame = inspect.currentframe().f_back
     if frame and frame.f_locals is not None:
+      # We're in a class definition
       local_vars = frame.f_locals
       local_vars.setdefault("__spec_rules__", []).append(Rule(expr, message=message))
   except Exception:
@@ -312,10 +499,27 @@ def check(func, *, coerce=True):
 T = TypeVar("T")
 
 
+# Apply dataclass_transform to help IDEs understand our class transformer
+@dataclass_transform(
+    field_specifiers=(Field, field),
+    kw_only_default=False,
+)
 def spec(cls: type[T]) -> type[T]:
   """Class decorator that transforms a regular class into a validated specification.
 
   The decorated class becomes a msgspec.Struct with validation, coercion and rule checking.
+  
+  Example:
+      ```python
+      @spec
+      class User:
+          name: str
+          email: str = field(pattern=r"^[^@]+@[^@]+\.[^@]+$")
+          age: int = field(ge=0)
+      
+      # Type checkers understand the __init__ signature
+      user = User(name="John", email="john@example.com", age=30)
+      ```
   """
   # For type checkers, create a class template
   spec_class_template = {}
@@ -327,6 +531,9 @@ def spec(cls: type[T]) -> type[T]:
   # Get rules directly from the class's __spec_rules__ attribute if present
   if "__spec_rules__" in namespace:
     spec_rules.extend(namespace["__spec_rules__"])
+  # For backward compatibility - check for __rules__ too
+  elif "__rules__" in namespace:
+    spec_rules.extend(namespace["__rules__"])
 
   # Also add any rules created via rule(...) calls in the class body
   for key, value in list(namespace.items()):
@@ -353,6 +560,11 @@ def spec(cls: type[T]) -> type[T]:
       rule = default.rule
       info = default
       default = info.default
+      
+      # Set type information on the Field object to help IDEs
+      info.type = T
+      info.name = key
+      
       if info.constraints:
         T = Annotated[T, msgspec.Meta(**info.constraints)]
       if rule:
@@ -378,11 +590,32 @@ def spec(cls: type[T]) -> type[T]:
       base_type = get_base_type(T)
 
       # skip conversion if type matches and coercion not forced
-      if isinstance(raw, base_type) and not should_coerce:
-        continue
+      if not should_coerce:
+        try:
+          # Try direct isinstance first
+          if isinstance(raw, base_type):
+            continue
+        except TypeError:
+          # If that fails, try to handle complex types more carefully
+          try:
+            # Get the origin type without subscripts (e.g., List from List[str])
+            origin_type = get_origin(base_type)
+            if origin_type and isinstance(raw, origin_type):
+              continue
+              
+            # Special case for basic types that are commonly used
+            if base_type in (str, int, float, bool, list, dict, set, tuple) and isinstance(raw, base_type):
+              continue
+          except TypeError:
+            # If we still can't check, let the conversion happen
+            pass
 
       # always try to convert, which will also validate
       try:
+        # Skip ClassVar and similar utility types
+        if get_origin(T) in (ClassVar, type, Any):
+          continue
+            
         # handle string to number conversion manually if coercion requested
         if should_coerce and isinstance(raw, str):
           if base_type is int:
@@ -401,30 +634,44 @@ def spec(cls: type[T]) -> type[T]:
                 pass  # Fall back to msgspec conversion
 
         # standard conversion through msgspec
-        value = msgspec.convert(raw, T, dec_hook=default_deserializer)
-        if value is not raw:  # only set if value actually changed
-          setattr(self, key, value)
+        try:
+          value = msgspec.convert(raw, T, dec_hook=default_deserializer)
+          if value is not raw:  # only set if value actually changed
+            setattr(self, key, value)
+        except (TypeError, ValueError) as e:
+          if "ClassVar" in str(e) or "is not supported" in str(e):
+            # Skip unsupported types
+            continue
+          raise
       except msgspec.ValidationError as e:
         raise msgspec.ValidationError(str(e) + f" - at `$.{key}`")  # noqa: mimic original exceptions
 
-    # Apply all rules
+    # Apply all rules - keep this for backward compatibility
+    # In case SpecStruct.__post_init__ is not called
     for r in self.__rules__:
         r(self)
 
     # Apply method rules
     for rm in self.__method_rules__:
         rm(self)
-
-    # run user's __post_init__ once everything is validated
+    
+    # run user's __post_init__ if it exists
     if __user_post_init__ := getattr(cls, "__post_init__", None):
       __user_post_init__(self)
 
-  # build new Struct class dynamically
-  bases = (msgspec.Struct,)
+  # build new Struct class using our SpecStruct as the base
+  try:
+    from .struct import SpecStruct
+    bases = (SpecStruct,)
+  except ImportError:
+    # Fallback to standard msgspec.Struct if our implementation isn't available
+    bases = (msgspec.Struct,)
 
   __dict__ = {
     "__module__": cls.__module__,
     "__doc__": cls.__doc__,
+    # Keep both names for compatibility
+    "__spec_rules__": spec_rules,
     "__rules__": spec_rules,
     "__method_rules__": method_rules,
     "__annotations__": {key: T for key, (T, _) in attrs.items()},
@@ -450,9 +697,82 @@ def spec(cls: type[T]) -> type[T]:
     if key not in result_cls.__dict__:
       setattr(result_cls, key, value)
 
+  # Since msgspec.StructMeta is immutable, we can't modify it directly.
+  # Instead, we'll set hints via other mechanisms that IDEs look for.
+  
+  # Create a class_getitem method that allows IDE autocompletion via Generic[T] pattern
+  def class_getitem(cls, params):
+    # This is needed for type checking with subscripted types
+    return cls
+    
+  result_cls.__class_getitem__ = classmethod(class_getitem)
+  
   # Type checkers like pyright use this to understand the structure
-  setattr(result_cls, "__dataclass_fields__", {
-    key: T for key, (T, _) in attrs.items()
-  })
-
+  dataclass_fields = {}
+  for field_name, (field_type, default) in attrs.items():
+    field_obj = type('Field', (), {
+      'name': field_name,
+      'type': field_type,
+      'default': default if default is not Ellipsis else None,
+      'default_factory': None,
+      'init': True,
+      'repr': True,
+      'compare': True,
+      'metadata': {},
+      'hash': True,
+    })
+    dataclass_fields[field_name] = field_obj
+  
+  setattr(result_cls, "__dataclass_fields__", dataclass_fields)
+  
+  # Add class annotations for IDE support
+  annotations = {}
+  for field_name, (field_type, _) in attrs.items():
+    annotations[field_name] = field_type
+  setattr(result_cls, "__annotations__", annotations)
+  
+  # Add a custom __init_subclass__ that copies annotations
+  def __init_subclass__(cls, **kwargs):
+    super(result_cls, cls).__init_subclass__(**kwargs)
+    # Copy annotations to help type checkers
+    parent_annotations = getattr(result_cls, "__annotations__", {})
+    cls_annotations = getattr(cls, "__annotations__", {})
+    for name, type_hint in parent_annotations.items():
+      if name not in cls_annotations:
+        cls_annotations[name] = type_hint
+    setattr(cls, "__annotations__", cls_annotations)
+  
+  setattr(result_cls, "__init_subclass__", classmethod(__init_subclass__))
+  
+  # Add various hints for different IDEs and type checkers
+  # PyCharm specific
+  setattr(result_cls, "__pydantic_model__", True)
+  
+  # Add field class variables - helps static type checkers
+  for field_name, (field_type, _) in attrs.items():
+    # This pattern is recognized by many type checkers
+    setattr(result_cls, f"__field_{field_name}__", field_type)
+  
+  # Support mypy plugin pattern
+  result_cls.__origin__ = cls
+  result_cls.__mypyc_attrs__ = {k: v for k, (v, _) in attrs.items()}
+  
+  # Add methods to support various type checking protocols
+  def __get_type_hints(cls):
+    return {k: v for k, (v, _) in attrs.items()}
+  
+  setattr(result_cls, "__get_type_hints__", classmethod(__get_type_hints))
+  
+  # Support pydantic compatibility for PyCharm
+  def __get_validators__(cls):
+    return []
+  
+  setattr(result_cls, "__get_validators__", classmethod(__get_validators__))
+  
+  # Support attrs typing pattern
+  result_cls.__attrs_attrs__ = [
+    type('Attribute', (), {'name': k, 'type': v})
+    for k, (v, _) in attrs.items()
+  ]
+  
   return result_cls

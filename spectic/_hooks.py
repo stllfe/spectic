@@ -19,7 +19,7 @@ import msgspec
 from msgspec import UNSET
 from msgspec import UnsetType
 
-from .exceptions import SpecticException
+from .exceptions import SpecException
 from .types.secrets import SecretBytes
 from .types.secrets import SecretStr
 from .utils import get_origin_or_inner_type
@@ -147,12 +147,12 @@ def encode_json(value: Any, serializer: Callable[[Any], Any] | None = None) -> b
       JSON as bytes
 
   Raises:
-      SpecticException: If error encoding ``obj``.
+      SpecException: If error encoding ``obj``.
   """
   try:
     return msgspec.json.encode(value, enc_hook=serializer) if serializer else _msgspec_json_encoder.encode(value)
   except (TypeError, msgspec.EncodeError) as msgspec_error:
-    raise SpecticException(str(msgspec_error)) from msgspec_error
+    raise SpecException(str(msgspec_error)) from msgspec_error
 
 
 @overload
@@ -195,7 +195,7 @@ def decode_json(  # type: ignore[misc]
       An object
 
   Raises:
-      SpecticException: If error decoding ``value``.
+      SpecException: If error decoding ``value``.
   """
   try:
     if target_type is UNSET:
@@ -210,7 +210,7 @@ def decode_json(  # type: ignore[misc]
       strict=strict,
     )
   except msgspec.DecodeError as msgspec_error:
-    raise SpecticException(str(msgspec_error)) from msgspec_error
+    raise SpecException(str(msgspec_error)) from msgspec_error
 
 
 def get_serializer(type_encoders: TypeEncodersMap | None = None) -> Serializer:

@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spectic"
+version = "0.1.0"
+description = "Data validation, serialization, and parsing library with a simple API"
+readme = "readme.md"
+authors = [
+    {name = "Oleg Pavlovich"}
+]
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Typing :: Typed",
+]
+dependencies = [
+    "msgspec>=0.18.0",
+]
+
+[project.optional-dependencies]
+yaml = ["pyyaml>=6.0"]
+dev = [
+    "pytest>=7.0.0",
+    "ruff>=0.0.260",
+]
+
+[tool.setuptools]
+packages = ["spectic"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+spectic = ["py.typed", "**/*.pyi"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+plugins = ["spectic.mypy_plugin"]
+
+[tool.ruff]
+select = ["E", "F", "I"]
+target-version = "py39"
+line-length = 100
