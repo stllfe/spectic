@@ -2,7 +2,7 @@
 
 # `spectic` 🧐
 
-_spectical but not too radical_
+_unparanoid data validation, just a little bit spectical_
 
 🔥 **Blazing fast, type-safe, drop-in alternative to pydantic, attrs, and dataclasses
 for instant classes with validation, parsing, and serialization.**
@@ -15,7 +15,7 @@ for instant classes with validation, parsing, and serialization.**
 
 - **Python-first, declarative models:** via the `@spec` decorator
 - **Ready-made types:** intervals, non-empty strings, emails, ...
-- **Field and model-level validation:** using symbolic Python rules
+- **Field and model-level validation:** using a simple `@rule` decorator at class definition
 - **Dataclasses-like API:** `asdict`, `astuple`, `replace` extended with `fromdict`, `fromtuple`, `asjson` and many more ...
 - **JSON/YAML/Msgpack:** serialization and deserialization with rich type support
 - **Runtime function argument validation:** `@check` (similar to pydantic’s `@validate_call`)

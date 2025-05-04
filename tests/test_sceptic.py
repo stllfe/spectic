@@ -78,7 +78,7 @@ def test_spec_rule_with_lambdas_invalid():
       attempts=5,
       threshold=0.4,
     )
-    
+
   # Test that creating an experiment with owner.age < attempts fails
   with pytest.raises(ValueError, match="owner's age must be at least equal to attempts"):
     Experiment(
@@ -95,11 +95,11 @@ def test_field_level_rule():
   class Product:
     name: str
     price: float = field(gt=0, rule=lambda price: price < 1000, message="Price must be less than 1000")
-    
+
   # Valid price
   product = Product(name="Widget", price=99.99)
   assert product.price == 99.99
-  
+
   # Invalid price - too high
   with pytest.raises(ValueError, match="Price must be less than 1000"):
     Product(name="Expensive Widget", price=1500)
@@ -111,17 +111,15 @@ def test_lambda_rules():
     items: int = field(gt=0)
     total: float = field(gt=0)
     discount: float = field(ge=0, le=1)
-    
-    # Lambda rule in class body
-    __spec_rules__ = []
-    __spec_rules__.append(Rule(lambda self: self.total > 0, message="Order total must be positive"))
-    __spec_rules__.append(Rule(lambda self: self.items * self.discount < self.total, 
-                             message="Discount cannot exceed total value"))
-    
+
+    # Direct lambda rule in class body
+    rule(lambda self: self.total > 0, "Order total must be positive")
+    rule(lambda self: self.items * self.discount < self.total, "Discount cannot exceed total value")
+
   # Valid order
   order = Order(items=5, total=100.0, discount=0.1)
   assert order.total == 100.0
-  
+
   # Invalid order - discount too high
   with pytest.raises(ValueError, match="Discount cannot exceed total value"):
     Order(items=10, total=5.0, discount=0.9)
@@ -132,11 +130,11 @@ def test_field_coercion():
   person = Person(name="Alice", age="30")
   assert person.age == 30
   assert isinstance(person.age, int)
-  
+
   # Test with a non-coercible value
   with pytest.raises(msgspec.ValidationError):
     Person(name="Bob", age="not_a_number")
-    
+
   # Test that coercion is not applied if not needed
   person2 = Person(name="Charlie", age=25)
   assert person2.age == 25
@@ -147,7 +145,7 @@ def test_field_no_coercion():
   class StrictPerson:
     name: str
     age: int
-    
+
   # Type checking should fail without coercion
   with pytest.raises(msgspec.ValidationError):
     StrictPerson(name="Dave", age="40")
@@ -157,13 +155,13 @@ def test_check_decorator():
   @check
   def calculate_area(width: PositiveInt, height: PositiveInt) -> float:
     return width * height
-    
+
   # Valid arguments
   assert calculate_area(5, 10) == 50
-  
+
   # Valid arguments with type coercion
   assert calculate_area("5", "10") == 50
-  
+
   # Invalid arguments - negative numbers don't fit PositiveInt
   try:
     calculate_area(-5, 10)
@@ -171,25 +169,25 @@ def test_check_decorator():
   except (TypeError, ValueError, msgspec.ValidationError):
     # Accept any of these exceptions
     pass
-    
+
   # Invalid string that can't be converted
   try:
     calculate_area("not_a_number", 10)
     pytest.fail("Should have raised an exception for invalid string")
   except (TypeError, ValueError):
-    # Accept any of these exceptions  
+    # Accept any of these exceptions
     pass
-    
-  
+
+
 def test_check_with_custom_types():
   @check
   def greet_user(user: User) -> str:
     return f"Hello, {user.name}! You are {user.age} years old."
-    
+
   # Valid user object
   user = User(name="Eva", age=25)
   assert greet_user(user) == "Hello, Eva! You are 25 years old."
-  
+
   # Invalid user object (should not coerce dict to User)
   try:
     greet_user({"name": "Frank", "age": 30})
@@ -203,7 +201,7 @@ def test_check_with_nested_objects():
   @check
   def get_experiment_summary(exp: Experiment) -> str:
     return f"{exp.title}: {exp.owner.name} runs {exp.attempts} attempts with {exp.trust} trust"
-    
+
   # Valid experiment
   exp = Experiment(
     title="Beta",
@@ -230,7 +228,7 @@ def test_asjson():
   data = json.loads(json_bytes)
   assert data["name"] == "Bob"
   assert data["age"] == 25
-  
+
   # Test with indent
   json_bytes_indented = asjson(user, indent=2)
   assert b"  " in json_bytes_indented
@@ -238,7 +236,7 @@ def test_asjson():
 
 def test_fromjson():
   json_str = '{"name": "Charlie", "age": 35}'
-  user = fromjson(User, json_str)
+  user = fromjson(json_str, User)
   assert isinstance(user, User)
   assert user.name == "Charlie"
   assert user.age == 35
@@ -260,7 +258,7 @@ def test_fromyaml():
   name: Eve
   age: 45
   """
-  user = fromyaml(User, yaml_str)
+  user = fromyaml(yaml_str, User)
   assert isinstance(user, User)
   assert user.name == "Eve"
   assert user.age == 45
@@ -275,25 +273,25 @@ def test_nested_conversion():
     attempts=4,
     threshold=0.6,
   )
-  
+
   # convert to dict and verify structure
   data = asdict(exp)
   assert data["title"] == "Test Experiment"
   assert isinstance(data["owner"], dict)
   assert data["owner"]["name"] == "Frank"
-  
+
   # convert to JSON and back
   json_bytes = asjson(exp)
-  exp2 = fromjson(Experiment, json_bytes)
+  exp2 = fromjson(json_bytes, Experiment)
   assert isinstance(exp2, Experiment)
   assert exp2.title == exp.title
   assert exp2.owner.name == exp.owner.name
-  
+
   # test yaml conversion if available
   if yaml is not None:
     # convert to YAML and back
     yaml_str = asyaml(exp)
-    exp3 = fromyaml(Experiment, yaml_str)
+    exp3 = fromyaml(yaml_str, Experiment)
     assert isinstance(exp3, Experiment)
     assert exp3.title == exp.title
     assert exp3.trust == exp.trust
